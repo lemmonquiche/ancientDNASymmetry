@@ -2,11 +2,22 @@
 """
 Calculate substitution rates from BAM/SAM using MD tags (no reference FASTA needed).
 
-Fixes two bugs in calc_noOrien.py:
-  1. GTR parsing: reads the 6th rate parameter (GT) from its own line instead of
-     silently using 1.0.
-  2. Expected rates: uses data-derived base frequencies instead of model frequencies,
-     so obs/exp is symmetric for complementary pairs when data composition is balanced.
+Expected substitution rates can optionally be scored under one of two models:
+
+  --gtr-params FILE     GTR: 6 symmetric exchangeabilities × target-base frequency
+                            rate(i→j) = exch_ij × freq_j
+                        where freq_j is the data-derived reference base frequency
+                        (whole-file, or local to each read position).
+
+  --unrest-params FILE  UNREST: 12 independent directed rates (e.g. IQ-TREE UNREST+FO)
+                            rate(i→j) = R[i→j]
+                        with NO target-frequency factor (verified against IQ-TREE's
+                        reported Q matrix).
+
+In both cases exp_count(i→j) = ref_count[i] × rate(i→j) × k, where the source-base
+frequency is carried by ref_count[i] and k normalizes total expected to total observed.
+
+With neither flag, only observed counts and rates are reported.
 """
 
 import sys
@@ -45,8 +56,8 @@ def parse_gtr_parameters(gtr_file_path):
         line 2: AC AG AT CG CT  (5 exchangeability rates)
         line 3: GT              (6th exchangeability rate, own line)
 
-    Returns dict with keys 'base_frequencies' and 'rate_matrix' (list of 6 floats,
-    order: AC AG AT CG CT GT), or raises on parse error.
+    Returns dict with keys 'model' ('gtr'), 'base_frequencies' and 'rate_matrix'
+    (list of 6 floats, order: AC AG AT CG CT GT), or raises on parse error.
     """
     with open(gtr_file_path, 'r') as f:
         lines = f.readlines()
@@ -66,40 +77,94 @@ def parse_gtr_parameters(gtr_file_path):
     rate_matrix.append(sixth_param)  # now 6 values: AC AG AT CG CT GT
 
     return {
+        'model': 'gtr',
         'base_frequencies': base_frequencies,
         'rate_matrix': rate_matrix,
     }
 
 
-def get_expected_gtr_rate_from_data(sub_type, gtr_params, ref_base_counts):
+def parse_unrest_parameters(unrest_file_path):
     """
-    Expected GTR rate for sub_type using data-derived target-base frequency.
+    Parse an UNREST parameter file.
 
-    rate(i→j) = rate_matrix[ij] × data_freq[j]
+    File format (12 non-empty lines, one per directed rate):
+        A-C: 0.997
+        A-G: 2.274
+        ...
+        T-G: 1.000
+    where each line is "SOURCE-TARGET: rate". No base-frequency lines are expected;
+    UNREST equilibrium frequencies are a function of Q, not supplied here.
 
-    This is symmetric for complementary pairs (e.g. A→C and C→A share the same
-    exchangeability parameter; when data is balanced the obs/exp ratios match).
+    Returns dict with keys 'model' ('unrest') and 'rates' -> dict[(src, tgt)] = float,
+    covering all 12 directed base pairs. Raises on parse error or if any of the 12
+    pairs is missing.
     """
-    total_bases = sum(ref_base_counts.values())
-    if total_bases == 0:
+    rates = {}
+    with open(unrest_file_path, 'r') as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            # Expect "X-Y: value"
+            try:
+                pair, value = line.split(':')
+                src, tgt = pair.strip().split('-')
+            except ValueError:
+                raise ValueError(f"Cannot parse UNREST line: {raw!r} "
+                                 "(expected 'SOURCE-TARGET: rate')")
+            src = src.strip().upper()
+            tgt = tgt.strip().upper()
+            if src not in BASES or tgt not in BASES or src == tgt:
+                raise ValueError(f"Invalid base pair in UNREST line: {raw!r}")
+            rates[(src, tgt)] = float(value.strip())
+
+    expected_pairs = {(i, j) for i in BASES for j in BASES if i != j}
+    missing = expected_pairs - set(rates)
+    if missing:
+        missing_str = ", ".join(f"{s}-{t}" for s, t in sorted(missing))
+        raise ValueError(f"UNREST file missing directed rate(s): {missing_str}")
+
+    return {'model': 'unrest', 'rates': rates}
+
+
+def base_freqs(base_counts):
+    """Convert dict[base] -> count into dict[base] -> frequency, or None if empty."""
+    total = sum(base_counts.get(b, 0) for b in BASES)
+    if total == 0:
         return None
-
-    data_freq = {b: ref_base_counts.get(b, 0) / total_bases for b in BASES}
-
-    matrix_idx = SUB_TO_IDX.get(sub_type)
-    if matrix_idx is None:
-        return None
-
-    target_base = sub_type.split('→')[1]
-    return gtr_params['rate_matrix'][matrix_idx] * data_freq[target_base]
+    return {b: base_counts.get(b, 0) / total for b in BASES}
 
 
-def compute_norm_factor(obs_counts, ref_counts, gtr_params):
+def raw_expected_rate(model, src, tgt, freq):
+    """
+    Un-normalized expected rate for src→tgt under the given model.
+
+    GTR:    rate_matrix[ij] × freq[tgt]  (symmetric exchangeability × target frequency;
+            complementary pairs such as A→C and C→A share one parameter)
+    UNREST: R[src→tgt]                   (directed parameter; freq is ignored)
+
+    The source-base frequency enters later as ref_count[src] in the expected-count
+    product, and the global scale is absorbed by the normalization factor.
+
+    Returns None under GTR when freq is None (no reference bases counted).
+    """
+    if model['model'] == 'gtr':
+        if freq is None:
+            return None
+        return model['rate_matrix'][SUB_TO_IDX[f"{src}→{tgt}"]] * freq[tgt]
+    return model['rates'][(src, tgt)]
+
+
+def compute_norm_factor(obs_counts, ref_counts, model):
     """
     Compute k such that sum(exp_count * k) == sum(obs_count) over all 12 substitution types.
-    Returns k, or 1.0 if gtr_params is None or total raw expected is zero.
+    Returns k, or 1.0 if model is None or total raw expected is zero.
     """
-    if gtr_params is None:
+    if model is None:
+        return 1.0
+
+    freq = base_freqs(ref_counts)
+    if freq is None:
         return 1.0
 
     total_obs = 0
@@ -109,12 +174,10 @@ def compute_norm_factor(obs_counts, ref_counts, gtr_params):
         for obs in BASES:
             if ref == obs:
                 continue
-            sub_type = f"{ref}→{obs}"
             total_obs += obs_counts[ref][obs]
             ref_count = ref_counts[ref]
-            exp_rate = get_expected_gtr_rate_from_data(sub_type, gtr_params, ref_counts)
-            if exp_rate is not None and ref_count > 0:
-                total_exp_raw += exp_rate * ref_count
+            if ref_count > 0:
+                total_exp_raw += raw_expected_rate(model, ref, obs, freq) * ref_count
 
     if total_exp_raw == 0:
         return 1.0
@@ -242,7 +305,7 @@ def analyze_alignment(input_file, strand_specific=True, min_baseq=0, min_mapq=0,
     return ref_counts, obs_counts, position_ref_counts, position_sub_counts
 
 
-def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, norm_factor=1.0):
+def print_results(ref_counts, obs_counts, model=None, output_file=None, norm_factor=1.0):
     """Print analysis results to stdout (and optionally a TSV file)."""
 
     total_ref = sum(ref_counts[b] for b in BASES)
@@ -268,7 +331,8 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
     print("=" * 70)
     print("SUBSTITUTION MATRIX (Reference → Observed)")
     print("=" * 70)
-    header = f"{'Ref\\Obs':<8}" + "".join(f"{b:>12}" for b in BASES)
+    ref_obs_label = 'Ref\\Obs'
+    header = f"{ref_obs_label:<8}" + "".join(f"{b:>12}" for b in BASES)
     header += f"{'Errors':>12}{'ErrorRate':>12}"
     print(header)
     print("-" * (8 + 4 * 12 + 12 + 12))
@@ -300,9 +364,10 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
     print("PER-SUBSTITUTION RATES")
     print("=" * 70)
 
-    has_gtr = gtr_params is not None
+    has_model = model is not None
+    freq = base_freqs(ref_counts)
 
-    if has_gtr:
+    if has_model:
         print(f"{'Sub':<8} {'ObsCount':>10} {'RefCount':>10} {'ObsRate':>12}"
               f" {'ExpRate':>12} {'ExpCount':>12} {'Obs/Exp':>10} {'piQ':>12}")
         print("-" * 91)
@@ -323,8 +388,8 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
             obs_rate = obs_count / ref_count if ref_count > 0 else 0.0
             pi_q = obs_count / total_ref if total_ref > 0 else 0.0
 
-            if has_gtr:
-                exp_rate = get_expected_gtr_rate_from_data(sub_type, gtr_params, ref_counts)
+            if has_model:
+                exp_rate = raw_expected_rate(model, ref, obs, freq)
                 if exp_rate is not None:
                     exp_rate = exp_rate * norm_factor
                 exp_count = exp_rate * ref_count if (exp_rate is not None and ref_count > 0) else None
@@ -338,7 +403,7 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
                               exp_rate, exp_count, obs_exp, pi_q))
 
     # Scale ratios so the minimum is 1.
-    if has_gtr:
+    if has_model:
         valid_ratios = [r[6] for r in raw_rows if r[6] is not None and r[6] > 0]
         ratio_min = min(valid_ratios) if valid_ratios else 1.0
     else:
@@ -346,7 +411,7 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
 
     tsv_rows = []
     for sub_type, obs_count, ref_count, obs_rate, exp_rate, exp_count, obs_exp, pi_q in raw_rows:
-        if has_gtr:
+        if has_model:
             scaled_obs_exp = obs_exp / ratio_min if obs_exp is not None else None
 
             exp_rate_s  = f"{exp_rate:.8f}"       if exp_rate       is not None else "NA"
@@ -393,15 +458,17 @@ def print_results(ref_counts, obs_counts, gtr_params=None, output_file=None, nor
     return ratio_min
 
 
-def write_positional_csv(position_ref_counts, position_sub_counts, gtr_params,
+def write_positional_csv(position_ref_counts, position_sub_counts, model,
                          pos_output, bases_output=None, max_pos=15, norm_factor=1.0,
                          ratio_scale=1.0):
     """
-    Write positional substitution CSV with same column format as calc_pos_mine.py.
+    Write per-position substitution CSV (and optionally a per-position base frequency CSV)
+    for the first/last max_pos bases of reads, using MD-tag-derived reference bases.
 
-    Uses calc_subs.py's GTR dict format (rate_matrix list + SUB_TO_IDX) and
-    MD-tag-derived bases rather than FASTA.
-    When gtr_params is None, expected_rate/expected_count are 0, obs_exp_ratio is inf/0.
+    Expected rates use the same global norm_factor as the whole-file table. Under GTR the
+    target-base frequency is the local reference composition at each position; under
+    UNREST the directed rate is used directly.
+    When model is None, expected_rate/expected_count are 0, obs_exp_ratio is inf/0.
     """
     all_positions = list(range(1, max_pos + 1)) + list(range(-max_pos, 0))
 
@@ -431,22 +498,21 @@ def write_positional_csv(position_ref_counts, position_sub_counts, gtr_params,
                 pos_type = '5prime' if pos > 0 else '3prime'
                 ref_pos_total = sum(position_ref_counts[pos].values())
 
-                # Per-position local base frequencies and expected rates (GTR)
+                # Per-position local base frequencies and expected rates
                 position_expected_rate = {}
                 local_freq = {b: 0.0 for b in BASES}
                 if ref_pos_total > 0:
                     local_freq = {b: position_ref_counts[pos].get(b, 0) / ref_pos_total
                                   for b in BASES}
 
-                if gtr_params:
+                if model:
                     for ref in BASES:
                         if position_ref_counts[pos].get(ref, 0) == 0:
                             continue
                         for obs in BASES:
                             if obs != ref:
-                                idx = SUB_TO_IDX[f"{ref}→{obs}"]
                                 position_expected_rate[(ref, obs)] = (
-                                    gtr_params['rate_matrix'][idx] * local_freq[obs] * norm_factor
+                                    raw_expected_rate(model, ref, obs, local_freq) * norm_factor
                                 )
 
                 # Base frequency row
@@ -477,7 +543,7 @@ def write_positional_csv(position_ref_counts, position_sub_counts, gtr_params,
                         obs_count = position_sub_counts[pos].get((ref, obs), 0)
                         obs_rate = obs_count / total_ref if total_ref > 0 else 0.0
 
-                        if gtr_params:
+                        if model:
                             exp_rate = position_expected_rate.get((ref, obs), 0.0)
                             exp_count = exp_rate * total_ref
                         else:
@@ -507,13 +573,18 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             'Substitution analysis from SAM/BAM using MD tags (no reference FASTA). '
-            'Fixes GTR parsing and expected-rate formula vs calc_noOrien.py.'
+            'Optionally scores expected substitutions under a GTR or UNREST model; '
+            'with neither, reports observed counts and rates only.'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('input_file', help='Input SAM or BAM file')
-    parser.add_argument('--gtr-params', metavar='FILE',
-                        help='GTR parameter file for expected substitution rates')
+    model_group = parser.add_mutually_exclusive_group()
+    model_group.add_argument('--gtr-params', metavar='FILE',
+                             help='GTR parameter file for expected substitution rates')
+    model_group.add_argument('--unrest-params', metavar='FILE',
+                             help='UNREST parameter file (12 lines "SOURCE-TARGET: rate") '
+                                  'for expected substitution rates')
     parser.add_argument('--no-strand-correction', action='store_true',
                         help='Skip complementing reverse-strand bases')
     parser.add_argument('--min-baseq', type=int, default=0,
@@ -523,21 +594,21 @@ def main():
     parser.add_argument('--output', metavar='FILE',
                         help='Write results to TSV file in addition to stdout')
     parser.add_argument('--pos-output', metavar='FILE',
-                        help='Positional substitution CSV (same columns as calc_pos_mine.py -o)')
+                        help='Write per-position substitution CSV')
     parser.add_argument('--pos-bases', metavar='FILE',
-                        help='Positional base frequency CSV (same columns as calc_pos_mine.py -b)')
+                        help='Write per-position base frequency CSV (requires --pos-output)')
     parser.add_argument('--max-pos', type=int, default=15, metavar='INT',
                         help='Positions from each end to analyze (default: 15)')
 
     args = parser.parse_args()
 
-    # Load GTR parameters
-    gtr_params = None
+    # Load model parameters (at most one, enforced by argparse)
+    model = None
     if args.gtr_params:
         try:
-            gtr_params = parse_gtr_parameters(args.gtr_params)
-            bf = gtr_params['base_frequencies']
-            rm = gtr_params['rate_matrix']
+            model = parse_gtr_parameters(args.gtr_params)
+            bf = model['base_frequencies']
+            rm = model['rate_matrix']
             print(f"Loaded GTR parameters from {args.gtr_params}", file=sys.stderr)
             print(f"  Base frequencies: A={bf['A']:.6f} C={bf['C']:.6f} "
                   f"G={bf['G']:.6f} T={bf['T']:.6f}", file=sys.stderr)
@@ -546,6 +617,23 @@ def main():
         except Exception as exc:
             print(f"Error loading GTR parameters: {exc}", file=sys.stderr)
             sys.exit(1)
+    elif args.unrest_params:
+        try:
+            model = parse_unrest_parameters(args.unrest_params)
+            rates = model['rates']
+            print(f"Loaded UNREST parameters from {args.unrest_params}", file=sys.stderr)
+            print("  Directed rates R[i→j]:", file=sys.stderr)
+            for src in BASES:
+                row = "    " + "  ".join(
+                    f"{src}→{tgt}={rates[(src, tgt)]:.4f}"
+                    for tgt in BASES if tgt != src)
+                print(row, file=sys.stderr)
+        except Exception as exc:
+            print(f"Error loading UNREST parameters: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    model_name = model['model'].upper() if model else 'none (counts only)'
+    print(f"Model: {model_name}", file=sys.stderr)
 
     max_pos = args.max_pos if args.pos_output else 0
 
@@ -557,16 +645,16 @@ def main():
         max_pos=max_pos,
     )
 
-    norm_factor = compute_norm_factor(obs_counts, ref_counts, gtr_params)
-    if gtr_params:
+    norm_factor = compute_norm_factor(obs_counts, ref_counts, model)
+    if model:
         print(f"  Normalization factor (k): {norm_factor:.6f}", file=sys.stderr)
 
-    ratio_min = print_results(ref_counts, obs_counts, gtr_params=gtr_params,
+    ratio_min = print_results(ref_counts, obs_counts, model=model,
                               output_file=args.output, norm_factor=norm_factor)
 
     if args.pos_output:
         write_positional_csv(
-            position_ref_counts, position_sub_counts, gtr_params,
+            position_ref_counts, position_sub_counts, model,
             args.pos_output,
             bases_output=args.pos_bases,
             max_pos=args.max_pos,
