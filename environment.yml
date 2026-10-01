@@ -1,0 +1,13 @@
+name: ancientDNASymmetry
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # Python: single_taxon/scripts/calc_subs.py
+  - python>=3.8
+  - pysam
+  # R: single_taxon/scripts/viewExcess.R
+  - r-base>=4.1
+  - r-ggplot2>=3.4
+  - r-dplyr
+  - r-patchwork
