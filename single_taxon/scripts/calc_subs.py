@@ -9,7 +9,7 @@ Expected substitution rates can optionally be scored under one of two models:
                         where freq_j is the data-derived reference base frequency
                         (whole-file, or local to each read position).
 
-  --unrest-params FILE  UNREST: 12 independent directed rates (e.g. IQ-TREE UNREST+FO)
+  --unrest-params FILE  UNREST: 12 independent directed rates (e.g. IQ-TREE -m UNREST+G4)
                             rate(i→j) = R[i→j]
                         with NO target-frequency factor (verified against IQ-TREE's
                         reported Q matrix).
@@ -22,7 +22,9 @@ With neither flag, only observed counts and rates are reported.
 
 import sys
 import argparse
+import atexit
 import csv
+import shlex
 from collections import defaultdict
 import pysam
 
@@ -40,6 +42,44 @@ SUB_TO_IDX = {
     'C→T': 4, 'T→C': 4,
     'G→T': 5, 'T→G': 5,
 }
+
+
+# Symmetric substitution pairs (i→j vs j→i), in report order
+SYMMETRIC_PAIRS = [('A', 'C'), ('A', 'G'), ('A', 'T'), ('C', 'G'), ('C', 'T'), ('G', 'T')]
+
+
+class Tee:
+    """Write to a stream and to a log file, so --log captures what the terminal shows."""
+
+    def __init__(self, stream, log):
+        self.stream = stream
+        self.log = log
+
+    def write(self, text):
+        self.stream.write(text)
+        self.log.write(text)
+
+    def flush(self):
+        self.stream.flush()
+        self.log.flush()
+
+
+def start_log(path):
+    """Copy stdout and stderr to a log file, headed by the command line, until exit."""
+    log_fh = open(path, 'w')
+    log_fh.write(f"Command: {shlex.join(sys.argv)}\n\n")
+    stdout, stderr = sys.stdout, sys.stderr
+    sys.stdout = Tee(stdout, log_fh)
+    sys.stderr = Tee(stderr, log_fh)
+
+    def stop_log():
+        # Flush and restore the real streams before closing, so nothing is lost at exit
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stdout, sys.stderr = stdout, stderr
+        log_fh.close()
+
+    atexit.register(stop_log)
 
 
 def complement(base):
@@ -184,6 +224,17 @@ def compute_norm_factor(obs_counts, ref_counts, model):
     return total_obs / total_exp_raw
 
 
+def exit_missing_md(read_name):
+    print(
+        f"\nERROR: MD tag is missing or incomplete (first seen in read {read_name}).\n"
+        "Please add MD tags with:\n"
+        "  samtools calmd -b <in.bam> <ref.fa> > <out.bam>\n"
+        "then re-run this script.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def analyze_alignment(input_file, strand_specific=True, min_baseq=0, min_mapq=0, max_pos=0):
     """
     Count reference bases and substitutions from a SAM/BAM file using MD tags.
@@ -213,7 +264,6 @@ def analyze_alignment(input_file, strand_specific=True, min_baseq=0, min_mapq=0,
     reads_processed = 0
     reads_reverse = 0
     bases_processed = 0
-    md_error_shown = False
 
     print("Processing alignment file...", file=sys.stderr)
     if strand_specific:
@@ -244,22 +294,17 @@ def analyze_alignment(input_file, strand_specific=True, min_baseq=0, min_mapq=0,
 
         read_length = read.query_length
 
-        # get_aligned_pairs with_seq=True uses the MD tag to provide ref bases
-        for query_pos, ref_pos, ref_base in read.get_aligned_pairs(
-                matches_only=True, with_seq=True):
+        # get_aligned_pairs with_seq=True uses the MD tag to provide ref bases;
+        # pysam raises ValueError when the tag is absent
+        try:
+            aligned_pairs = read.get_aligned_pairs(matches_only=True, with_seq=True)
+        except ValueError:
+            aligned_pairs = None
+        if aligned_pairs is None or any(ref_base is None for _, _, ref_base in aligned_pairs):
+            aln.close()
+            exit_missing_md(read.query_name)
 
-            if ref_base is None:
-                if not md_error_shown:
-                    print(
-                        "\nERROR: MD tag is missing or incomplete — ref_base is None.\n"
-                        "Please add MD tags with:\n"
-                        "  samtools calmd -b <in.bam> <ref.fa> > <out.bam>\n"
-                        "then re-run this script.",
-                        file=sys.stderr,
-                    )
-                    aln.close()
-                    sys.exit(1)
-                continue  # unreachable after exit, kept for clarity
+        for query_pos, ref_pos, ref_base in aligned_pairs:
 
             # pysam convention: lowercase = match, uppercase = mismatch
             ref_base = ref_base.upper()
@@ -303,6 +348,31 @@ def analyze_alignment(input_file, strand_specific=True, min_baseq=0, min_mapq=0,
         file=sys.stderr,
     )
     return ref_counts, obs_counts, position_ref_counts, position_sub_counts
+
+
+def print_symmetry_ratios(obs_counts):
+    """
+    Print max(i→j, j→i) / min(i→j, j→i) for each symmetric pair, from observed counts.
+    Values near 1 indicate symmetry; "Higher" is the direction in excess.
+    """
+    print("=" * 70)
+    print("SYMMETRY RATIOS: max(i→j, j→i) / min(i→j, j→i)")
+    print("=" * 70)
+    print(f"{'Pair':<6} {'Forward':>17} {'Reverse':>17} {'Ratio':>10} {'Higher':>8}")
+    print("-" * 62)
+    for i, j in SYMMETRIC_PAIRS:
+        n_fwd, n_rev = obs_counts[i][j], obs_counts[j][i]
+        hi, lo = max(n_fwd, n_rev), min(n_fwd, n_rev)
+        if lo > 0:
+            ratio = f"{hi / lo:.4f}"
+        else:
+            ratio = "inf" if hi > 0 else "NA"
+        if n_fwd == n_rev:
+            higher = "equal"
+        else:
+            higher = f"{i}→{j}" if n_fwd > n_rev else f"{j}→{i}"
+        print(f"{i}↔{j:<4} {i}→{j}{n_fwd:>14,} {j}→{i}{n_rev:>14,} {ratio:>10} {higher:>8}")
+    print()
 
 
 def print_results(ref_counts, obs_counts, model=None, output_file=None, norm_factor=1.0):
@@ -432,7 +502,12 @@ def print_results(ref_counts, obs_counts, model=None, output_file=None, norm_fac
     print()
 
     # ------------------------------------------------------------------
-    # 4. Summary
+    # 4. Symmetry ratios
+    # ------------------------------------------------------------------
+    print_symmetry_ratios(obs_counts)
+
+    # ------------------------------------------------------------------
+    # 5. Summary
     # ------------------------------------------------------------------
     print("=" * 70)
     print("SUMMARY")
@@ -599,8 +674,14 @@ def main():
                         help='Write per-position base frequency CSV (requires --pos-output)')
     parser.add_argument('--max-pos', type=int, default=15, metavar='INT',
                         help='Positions from each end to analyze (default: 15)')
+    parser.add_argument('--log', metavar='FILE',
+                        help='Also write everything printed (report and progress messages) '
+                             'to this file')
 
     args = parser.parse_args()
+
+    if args.log:
+        start_log(args.log)
 
     # Load model parameters (at most one, enforced by argparse)
     model = None

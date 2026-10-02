@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+.Rhistory
+.RData
+
+# Per-read CSVs regenerated from aggregate/example/bams_downsampled (~120 MB)
+aggregate/example/reads/

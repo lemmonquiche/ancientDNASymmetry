@@ -1,7 +1,8 @@
 # Single-taxon substitution analysis
 
-Aggregate and positional substitution counts and observed-to-expected ratios for a
-single BAM (one taxon), as used in Lemmon-Kishi et al. (2026).
+Aggregate and positional substitution counts, observed-to-expected ratios and symmetry
+ratios for a single BAM (one taxon or sample), as used in Lemmon-Kishi et al. (2026)
+(Tables 1 and 3, Fig. 2, Supp. Figs S3–S5).
 
 | Script | Language | Does |
 | --- | --- | --- |
@@ -31,19 +32,19 @@ From the repository root, run on the included example data under GTR, with posit
 output for the first and last 15 bases:
 
 ```bash
-python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --gtr-params single_taxon/example/gtr_params.txt --output ex_gtr.tsv --pos-output ex_gtr_pos.csv --pos-bases ex_gtr_bases.csv
+python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --gtr-params single_taxon/example/gtr_params.txt --output ex_gtr.tsv --pos-output ex_gtr_pos.csv --pos-bases ex_gtr_bases.csv --log ex_gtr.log
 ```
 
 Under UNREST:
 
 ```bash
-python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --unrest-params single_taxon/example/unrest_params.txt --output ex_unrest.tsv --pos-output ex_unrest_pos.csv --pos-bases ex_unrest_bases.csv
+python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --unrest-params single_taxon/example/unrest_params.txt --output ex_unrest.tsv --pos-output ex_unrest_pos.csv --pos-bases ex_unrest_bases.csv --log ex_unrest.log
 ```
 
 Counts only:
 
 ```bash
-python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --output ex.tsv --pos-output ex_pos.csv --pos-bases ex_bases.csv
+python single_taxon/scripts/calc_subs.py single_taxon/example/example.bam --output ex.tsv --pos-output ex_pos.csv --pos-bases ex_bases.csv --log ex.log
 ```
 
 Then plot the positional output (writes `ex_gtr_figure.png` next to the input):
@@ -61,7 +62,7 @@ The results should match the files in [`example/expected/`](example/expected/).
 | [`example/example.bam`](example/example.bam) | 103,065 reads (~4.6 million aligned bases), a random subsample of nuclear reads from ancient *Betula* |
 | [`example/gtr_params.txt`](example/gtr_params.txt) | GTR+Γ parameters |
 | [`example/unrest_params.txt`](example/unrest_params.txt) | UNREST directed rates |
-| [`example/expected/`](example/expected/) | expected outputs of the commands above: `ex*.tsv`, `ex*_pos.csv` and `ex*_bases.csv` from `calc_subs.py`, and `ex*_figure.png` from `viewExcess.R` |
+| [`example/expected/`](example/expected/) | expected outputs of the commands above: `ex*.tsv`, `ex*_pos.csv`, `ex*_bases.csv` and `ex*.log` from `calc_subs.py`, and `ex*_figure.png` from `viewExcess.R` |
 
 Even in this subsample, the damage signatures described in the paper are visible in the
 observed-to-expected ratios under GTR (`expected/ex_gtr.tsv`): C → T (4.09) and G → A
@@ -100,9 +101,11 @@ calc_subs.py INPUT [--gtr-params FILE | --unrest-params FILE] [options]
 | `--pos-output FILE` | none | Write the positional substitution CSV. Enables positional counting. |
 | `--pos-bases FILE` | none | Write the positional base-composition CSV. **Ignored unless `--pos-output` is also given.** |
 | `--max-pos INT` | 15 | Number of positions from each read terminus to include in positional output. |
+| `--log FILE` | none | Also save everything printed (stdout and stderr) to this file, headed by the command line. |
 
 The report goes to stdout. Progress messages, the loaded model parameters, the
-normalization factor and errors go to stderr.
+normalization factor and errors go to stderr. `--log` keeps both in one file, so the run
+can be checked later.
 
 ## Input files
 
@@ -151,9 +154,16 @@ bases at positions covered by the aligned reads (see [Method](#method)).
 
 ### UNREST parameter file
 
-The 12 directed rates of a non-reversible UNREST model (e.g. IQ-TREE `UNREST+G4`). One
-line per rate in the form `SOURCE-TARGET: rate`, in any order. Blank lines are ignored;
-all 12 are required.
+The 12 directed rates of a non-reversible UNREST model. In the paper they were fitted
+with IQ-TREE on the same reference alignment as the GTR model:
+
+```bash
+iqtree2 -s combined_msa.fasta -m UNREST+G4 -pre UNREST -T 20
+```
+
+The rate parameters reported in `UNREST.iqtree` were then copied into the file below
+(the gamma shape is not used). One line per rate in the form `SOURCE-TARGET: rate`, in
+any order. Blank lines are ignored; all 12 are required.
 
 ```
 A-C: 1.003
@@ -253,7 +263,26 @@ used directly.
    mismatch rates.
 3. **Per-substitution rates**: one row per substitution type (see TSV columns below).
    Expected columns are shown only when a model is given.
-4. **Summary**: overall mismatch rate, and total matches and mismatches.
+4. **Symmetry ratios**: for each symmetric pair, both observed counts and
+   max(i → j, j → i) / min(i → j, j → i), plus which direction is higher (paper Table 3).
+   Values near 1 indicate symmetry. These use the strand-corrected counts and need no
+   model.
+5. **Summary**: overall mismatch rate, and total matches and mismatches.
+
+For example, from `example/expected/ex_gtr.log`:
+
+```
+SYMMETRY RATIOS: max(i→j, j→i) / min(i→j, j→i)
+======================================================================
+Pair             Forward           Reverse      Ratio   Higher
+--------------------------------------------------------------
+A↔C    A→C         2,750 C→A         4,194     1.5251      C→A
+A↔G    A→G         9,205 G→A        28,123     3.0552      G→A
+A↔T    A→T         4,712 T→A         4,393     1.0726      A→T
+C↔G    C→G         1,776 G→C         1,667     1.0654      C→G
+C↔T    C→T        30,094 T→C         9,157     3.2864      C→T
+G↔T    G→T         4,166 T→G         2,711     1.5367      G→T
+```
 
 ### `--output` TSV (aggregate)
 

@@ -12,8 +12,6 @@ This is one of two code repositories for the paper. The molecular dating method
 [lemmonquiche/ratePlacer](https://github.com/lemmonquiche/ratePlacer). This repository
 contains the damage and symmetry analysis.
 
-> Work in progress. Will be updating as I transition to a postdoc.
-
 ## Motivation
 
 Post-mortem damage in aDNA shows up as mismatches between reads and the reference. The
@@ -57,8 +55,8 @@ documentation.
 
 | Directory | Analysis | Paper |
 | --- | --- | --- |
-| [`single_taxon/`](single_taxon/) | Aggregate and positional substitution counts and observed-to-expected ratios for one BAM (one taxon), under GTR or UNREST | Sections 4.2.2, 4.5.2; Table 1, Fig. 2, Supp. Figs S3–S5 |
-| [`aggregate/`](aggregate/) | Ancient vs modern symmetry ratios across taxa, χ² / Cramér's V, label permutation, Watson-Crick complement pairs | Sections 4.2.1, 4.2.3; Tables 2–3, Fig. 3, Supp. Figs S6–S7 |
+| [`single_taxon/`](single_taxon/) | Aggregate and positional substitution counts, observed-to-expected ratios (GTR or UNREST) and symmetry ratios for one BAM (one taxon or sample) | Sections 4.2.2, 4.5.2; Tables 1 and 3, Fig. 2, Supp. Figs S3–S5 |
+| [`aggregate/`](aggregate/) | Ancient vs modern symmetry ratios across taxa, χ² / Cramér's V, label permutation, Watson-Crick complement pairs | Sections 4.2.1, 4.2.3; Table 2, Fig. 3, Supp. Figs S6–S7 |
 
 ## Requirements
 

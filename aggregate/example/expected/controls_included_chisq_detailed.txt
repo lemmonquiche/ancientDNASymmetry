@@ -1,0 +1,306 @@
+
+
+#################### Complementary ####################
+
+========== AC_CA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 42.276, df = 1, p-value = 7.924e-11
+
+
+Observed:
+         A>C  C>A
+ancient 3318 6589
+modern  1052 1556
+
+Expected:
+             A>C      C>A
+ancient 3459.336 6447.664
+modern   910.664 1697.336
+
+Standardized Residuals:
+              A>C       C>A
+ancient -6.525111  6.525111
+modern   6.525111 -6.525111
+
+Cramér's V: 0.0581 
+
+========== AG_GA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 2131.9, df = 1, p-value < 2.2e-16
+
+
+Observed:
+         A>G   G>A
+ancient 9606 52440
+modern  1945  2668
+
+Expected:
+               A>G       G>A
+ancient 10751.6366 51294.363
+modern    799.3634  3813.637
+
+Standardized Residuals:
+              A>G       G>A
+ancient -46.19227  46.19227
+modern   46.19227 -46.19227
+
+Cramér's V: 0.1788 
+
+========== AT_TA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 0.86993, df = 1, p-value = 0.351
+
+
+Observed:
+         A>T  T>A
+ancient 6130 6179
+modern   796  762
+
+Expected:
+              A>T       T>A
+ancient 6147.8426 6161.1574
+modern   778.1574  779.8426
+
+Standardized Residuals:
+             A>T      T>A
+ancient -0.95959  0.95959
+modern   0.95959 -0.95959
+
+Cramér's V: 0.0079 
+
+========== CG_GC ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 2.9684, df = 1, p-value = 0.08491
+
+
+Observed:
+         C>G  G>C
+ancient 2174 2151
+modern   958 1042
+
+Expected:
+              C>G      G>C
+ancient 2141.6443 2183.356
+modern   990.3557 1009.644
+
+Standardized Residuals:
+              C>G       G>C
+ancient  1.749942 -1.749942
+modern  -1.749942  1.749942
+
+Cramér's V: 0.0217 
+
+========== CT_TC ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 2531.1, df = 1, p-value < 2.2e-16
+
+
+Observed:
+          C>T  T>C
+ancient 56067 9655
+modern   2666 2012
+
+Expected:
+              C>T        T>C
+ancient 54830.259 10891.7411
+modern   3902.741   775.2589
+
+Standardized Residuals:
+              C>T       T>C
+ancient  50.33054 -50.33054
+modern  -50.33054  50.33054
+
+Cramér's V: 0.1896 
+
+========== GT_TG ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 43.179, df = 1, p-value = 4.997e-11
+
+
+Observed:
+         G>T  T>G
+ancient 6711 3384
+modern  1525 1037
+
+Expected:
+             G>T       T>G
+ancient 6568.888 3526.1116
+modern  1667.112  894.8884
+
+Standardized Residuals:
+              G>T       T>G
+ancient  6.594239 -6.594239
+modern  -6.594239  6.594239
+
+Cramér's V: 0.0584 
+
+
+#################### Watson-Crick ####################
+
+========== AC_TG ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 0.42838, df = 1, p-value = 0.5128
+
+
+Observed:
+         A>C  T>G
+ancient 3318 3384
+modern  1052 1037
+
+Expected:
+            A>C     T>G
+ancient 3331.56 3370.44
+modern  1038.44 1050.56
+
+Standardized Residuals:
+               A>C        T>G
+ancient -0.6795639  0.6795639
+modern   0.6795639 -0.6795639
+
+Cramér's V: 0.007 
+
+========== AG_TC ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 0.6511, df = 1, p-value = 0.4197
+
+
+Observed:
+         A>G  T>C
+ancient 9606 9655
+modern  1945 2012
+
+Expected:
+             A>G      T>C
+ancient 9582.385 9678.615
+modern  1968.615 1988.385
+
+Standardized Residuals:
+               A>G        T>C
+ancient  0.8243591 -0.8243591
+modern  -0.8243591  0.8243591
+
+Cramér's V: 0.0053 
+
+========== AT_TA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 0.86993, df = 1, p-value = 0.351
+
+
+Observed:
+         A>T  T>A
+ancient 6130 6179
+modern   796  762
+
+Expected:
+              A>T       T>A
+ancient 6147.8426 6161.1574
+modern   778.1574  779.8426
+
+Standardized Residuals:
+             A>T      T>A
+ancient -0.95959  0.95959
+modern   0.95959 -0.95959
+
+Cramér's V: 0.0079 
+
+========== CG_GC ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 2.9684, df = 1, p-value = 0.08491
+
+
+Observed:
+         C>G  G>C
+ancient 2174 2151
+modern   958 1042
+
+Expected:
+              C>G      G>C
+ancient 2141.6443 2183.356
+modern   990.3557 1009.644
+
+Standardized Residuals:
+              C>G       G>C
+ancient  1.749942 -1.749942
+modern  -1.749942  1.749942
+
+Cramér's V: 0.0217 
+
+========== CT_GA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 5.7471, df = 1, p-value = 0.01652
+
+
+Observed:
+          C>T   G>A
+ancient 56067 52440
+modern   2666  2668
+
+Expected:
+              C>T       G>A
+ancient 55981.076 52525.924
+modern   2751.924  2582.076
+
+Standardized Residuals:
+              C>T       G>A
+ancient  2.411352 -2.411352
+modern  -2.411352  2.411352
+
+Cramér's V: 0.0071 
+
+========== GT_CA ==========
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  pair_tables[[pair_name]]
+X-squared = 0.88744, df = 1, p-value = 0.3462
+
+
+Observed:
+         G>T  C>A
+ancient 6711 6589
+modern  1525 1556
+
+Expected:
+             G>T      C>A
+ancient 6686.942 6613.058
+modern  1549.058 1531.942
+
+Standardized Residuals:
+              G>T       C>A
+ancient  0.962036 -0.962036
+modern  -0.962036  0.962036
+
+Cramér's V: 0.0074 
